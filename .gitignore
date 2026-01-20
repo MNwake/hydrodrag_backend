@@ -1,0 +1,78 @@
+# =========================
+# Python / FastAPI
+# =========================
+
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables
+.env
+
+# =========================
+# Packaging / Build
+# =========================
+
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+MANIFEST
+
+# =========================
+# Testing / Coverage
+# =========================
+
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# =========================
+# Logs
+# =========================
+
+*.log
+
+# =========================
+# Database (local only)
+# =========================
+
+db.sqlite3
+db.sqlite3-journal
+
+# =========================
+# IDEs / Editors
+# =========================
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+
+# VS Code (optional)
+.vscode/
+
+# =========================
+# OS Files
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# Migrations
+# =========================
+
+# Keep Alembic migrations!
+# (do NOT ignore alembic/versions)
