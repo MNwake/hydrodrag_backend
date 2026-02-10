@@ -1,36 +1,36 @@
-from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from core.config.settings import Settings
-from core.database_manager import DatabaseManager
+from core.database import Database
 
 
 class HydrodragsApp:
     """
-    Top-level lifecycle owner for the HydroDrags backend application.
+        Top-level lifecycle owner for the HydroDrags backend application.
 
-    Responsibilities:
-    - Create and configure the FastAPI instance
-    - Register routes, middleware, and startup/shutdown hooks
-    - Act as the single entry point for the server
-    """
-
+        Responsibilities:
+        - Create and configure the FastAPI instance
+        - Register routes, middleware, and startup/shutdown hooks
+        - Act as the single entry point for the server
+        """
     def __init__(self) -> None:
         self._server: FastAPI | None = None
         self._settings = Settings()
-        self._db = DatabaseManager(database_url=self._settings.database_url)
+        self._db = Database(self._settings)
 
     @asynccontextmanager
     async def _lifespan(self, app: FastAPI):
-        """
-        Application startup / shutdown lifecycle.
-        """
-        await self._startup()
+        print("Starting up HydroDrags API...")
+        self._db.connect()
         yield
-        await self._shutdown()
+        print("Shutting down HydroDrags API...")
+        self._db.disconnect()
 
     def create_app(self) -> FastAPI:
-        if self._server is not None:
+        if self._server:
             return self._server
 
         self._server = FastAPI(
@@ -39,44 +39,54 @@ class HydrodragsApp:
             lifespan=self._lifespan,
         )
 
+        self._server.add_middleware(
+            CORSMiddleware,
+            allow_origins=self._settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
         self._server.state.app = self
         self._register_routes()
-        self._register_middleware()
-
         return self._server
-
-    # core/hydrodrags_app.py
-
-    async def _startup(self) -> None:
-        print("Starting up HydroDrags API...")
-        await self._db.startup()
-        await self._db.create_tables()
-
-    async def _shutdown(self) -> None:
-        print("Shutting down HydroDrags API...")
-        await self._db.shutdown()
-
-    # ---------------------------------------------------------
-    # Internal registration
-    # ---------------------------------------------------------
 
     def _register_routes(self) -> None:
         from server.routes.health import router as health_router
-        from server.routes.rider import router as rider_route
         from server.routes.auth import router as auth_router
+        from server.routes.racer import router as rider_router
+        from server.routes.user.me import router as me_router
+        from server.routes.event import router as event_router
+        from server.routes.registration import router as registration_router
+        from server.routes.admin import router as admin_router
+        from server.routes.user.paypal import router as webhooks_router
+        from server.routes.user.paypal_redirects import router as paypal_redirects_router
+        from server.routes.hydrodrags import router as hydrodrags_router
+        from server.routes.speed import router as speed_router
+        from fastapi.staticfiles import StaticFiles
+
+        self._server.mount(
+            "/assets",
+            StaticFiles(directory="assets"),
+            name="assets",
+        )
 
         self._server.include_router(health_router)
-        self._server.include_router(rider_route)
         self._server.include_router(auth_router)
+        self._server.include_router(rider_router)
+        self._server.include_router(me_router)
+        self._server.include_router(event_router)
+        self._server.include_router(registration_router)
+        self._server.include_router(admin_router)
+        self._server.include_router(webhooks_router)
+        self._server.include_router(paypal_redirects_router)
+        self._server.include_router(hydrodrags_router)
+        self._server.include_router(speed_router)
 
-    def _register_middleware(self) -> None:
-        # Add CORS, logging, auth middleware later
-        pass
+    @property
+    def db(self) -> Database:
+        return self._db
 
     @property
     def settings(self) -> Settings:
         return self._settings
-
-    @property
-    def db(self) -> DatabaseManager:
-        return self._db

@@ -1,19 +1,28 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
+
 import jwt
 
 from core.config.settings import Settings
+from core.models.racer import Racer
+from utils import utcnow
 
 
-def create_access_token(*, racer_id: int, settings: Settings) -> str:
-    now = datetime.now(timezone.utc)
-    exp = now + timedelta(minutes=settings.jwt_access_token_minutes)
+def _create_access_token(self, racer: Racer) -> str:
+    now = utcnow()
+    exp = now + timedelta(minutes=self.settings.jwt_access_token_minutes)
 
     payload = {
-        "sub": f"racer:{racer_id}",
+        "sub": str(racer.id),
+        "email": racer.email,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    return jwt.encode(
+        payload,
+        self.settings.jwt_secret,
+        algorithm=self.settings.jwt_algorithm,
+    )
 
 
 def decode_token(*, token: str, settings: Settings) -> dict:

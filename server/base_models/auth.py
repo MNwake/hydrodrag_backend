@@ -15,7 +15,7 @@ class VerifyCodeResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-
+    profile_complete: bool
 
 
 class RefreshTokenRequest(BaseModel):

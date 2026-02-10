@@ -1,8 +1,13 @@
+from typing import List
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    api_base_url: str
     database_url: str
+    cors_origins: List[str] = []
     debug: bool = False
 
     smtp_host: str
@@ -14,6 +19,12 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     jwt_access_token_minutes: int = 60
+
+    admin_api_key: str
+
+    paypal_base_url: str
+    paypal_client_id: str
+    paypal_secret: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

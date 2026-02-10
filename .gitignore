@@ -75,4 +75,5 @@ Thumbs.db
 # =========================
 
 # Keep Alembic migrations!
-# (do NOT ignore alembic/versions)
+# (do NOT ignore alembic/versions)assets/
+assets/

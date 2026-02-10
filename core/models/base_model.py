@@ -1,38 +1,29 @@
-from datetime import datetime, UTC
-from sqlalchemy import DateTime, Column, func
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.orm import DeclarativeBase
+# core/models/base_document.py
+from mongoengine import Document, DateTimeField
+
+from utils import utcnow
 
 
-class Base(DeclarativeBase):
-    """
-    Base class for all SQLAlchemy models.
-    """
-    pass
+class BaseDocument(Document):
+    created_at = DateTimeField(default=utcnow)
+    updated_at = DateTimeField(default=utcnow)
 
+    meta = {
+        "abstract": True
+    }
 
+    def to_dict(self) -> dict:
+        """
+        Converts MongoEngine document to a clean dict
+        suitable for Pydantic serialization.
+        """
+        data = self.to_mongo().to_dict()
 
-class TimestampedMixin:
-    """
-    Adds created_at / updated_at audit fields.
-    """
+        # Convert ObjectId → str
+        data["id"] = str(data.pop("_id"))
 
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
+        return data
 
-
-class PrimaryKeyMixin:
-    """
-    Adds an integer primary key named `id`.
-    """
-
-    id: Mapped[int] = mapped_column(primary_key=True)
+    def save(self, *args, **kwargs):
+        self.updated_at = utcnow()
+        return super().save(*args, **kwargs)
