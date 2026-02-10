@@ -4,6 +4,7 @@ from typing import Optional, List
 from pydantic import BaseModel, Field, computed_field
 
 from server.base_models import MongoReadModel
+from server.base_models.registration import EventRegistrationClientBase
 from utils import utcnow
 
 
@@ -51,6 +52,10 @@ class SpeedRankingItem(BaseModel):
     registration_id: str
     top_speed: float
 
+class SpeedRankingWithRacerItem(BaseModel):
+    place: int
+    top_speed: float
+    registration: EventRegistrationClientBase
 
 class SpeedRankingResponse(BaseModel):
     class_key: str
@@ -108,3 +113,86 @@ class SpeedSessionBase(MongoReadModel):
 
         remaining = int(self.duration_seconds - elapsed)
         return max(0, remaining)
+
+
+class SpeedSessionWithRacersBase(MongoReadModel):
+    id: str
+
+    event: str
+    class_key: str
+
+    started_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    paused_at: Optional[datetime] = None
+
+    duration_seconds: int
+    total_paused_seconds: int = 0
+
+    rankings: List[SpeedRankingWithRacerItem] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def remaining_seconds(self) -> int:
+        if not self.started_at:
+            return self.duration_seconds
+
+        if self.stopped_at:
+            return 0
+
+        now = utcnow()
+
+        started_at = self.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+
+        elapsed = (now - started_at).total_seconds()
+        elapsed -= self.total_paused_seconds or 0
+
+        if self.paused_at:
+            paused_at = self.paused_at
+            if paused_at.tzinfo is None:
+                paused_at = paused_at.replace(tzinfo=timezone.utc)
+            elapsed -= (now - paused_at).total_seconds()
+
+        return max(0, int(self.duration_seconds - elapsed))
+
+    @classmethod
+    def from_mongo(cls, session):
+        from core.models.registration import EventRegistration
+
+        raw = session.to_mongo().to_dict()
+        data = {}
+
+        for key, value in raw.items():
+            if key == "_id":
+                data["id"] = str(value)
+            elif key == "event":
+                data["event"] = str(value)
+            else:
+                data[key] = value
+
+        rankings = session.rankings or []
+        registration_ids = [r.registration_id for r in rankings]
+
+        regs = {
+            str(r.id): r
+            for r in EventRegistration.objects(id__in=registration_ids)
+            .select_related()
+        }
+
+        data["rankings"] = []
+
+        for r in rankings:
+            reg = regs.get(r.registration_id)
+            if not reg:
+                continue
+
+            data["rankings"].append(
+                SpeedRankingWithRacerItem(
+                    place=r.place,
+                    top_speed=r.top_speed,
+                    registration=EventRegistrationClientBase.from_mongo(reg),
+                )
+            )
+
+        return cls(**data)

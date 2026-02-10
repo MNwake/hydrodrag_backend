@@ -63,7 +63,9 @@ class HydrodragsApp:
         from server.routes.user.paypal_redirects import router as paypal_redirects_router
         from server.routes.hydrodrags import router as hydrodrags_router
         from server.routes.speed import router as speed_router
+        from server.routes.ws import router as ws_router
         from fastapi.staticfiles import StaticFiles
+
 
         self._server.mount(
             "/assets",
@@ -82,6 +84,7 @@ class HydrodragsApp:
         self._server.include_router(paypal_redirects_router)
         self._server.include_router(hydrodrags_router)
         self._server.include_router(speed_router)
+        self._server.include_router(ws_router)
 
     @property
     def db(self) -> Database:

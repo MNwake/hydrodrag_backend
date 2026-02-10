@@ -139,8 +139,8 @@ class EventRegistrationClientBase(MongoReadModel):
     price: float
 
     losses: int
-    top_speed: Optional[float]
-    speed_updated_at: Optional[datetime]
+    top_speed: Optional[float] = None
+    speed_updated_at: Optional[datetime] = None
     is_paid: bool
     created_at: datetime
 

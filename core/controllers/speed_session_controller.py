@@ -1,8 +1,8 @@
-# core/controllers/speed_session_controller.py
 from datetime import datetime, timezone
 
 from utils import utcnow
 
+from core.controllers.score_broadcaster import ScoreBroadcaster
 from core.models.event import Event
 from core.models.registration import EventRegistration
 from core.models.speed_session import SpeedSession, SpeedRankingEntry
@@ -11,12 +11,6 @@ from core.models.speed_session import SpeedSession, SpeedRankingEntry
 class SpeedSessionController:
     """
     Controls a top-speed session for a single Event + Class.
-
-    Responsibilities:
-    - Start / stop class-wide speed session
-    - Enforce scoring window
-    - Update racer top speeds
-    - Maintain cached rankings snapshot
     """
 
     def __init__(self, *, event: Event, class_key: str):
@@ -28,17 +22,55 @@ class SpeedSessionController:
             class_key=class_key,
         ).first()
 
-    def _to_utc(self, dt: datetime) -> datetime:
-        if dt is None:
+    # --------------------------------------------------
+    # Internal helpers
+    # --------------------------------------------------
+
+    def _to_utc(self, dt: datetime | None) -> datetime | None:
+        if not dt:
             return None
         if dt.tzinfo is None:
             return dt.replace(tzinfo=timezone.utc)
         return dt
+
+    def _remaining_seconds(self) -> int:
+        if not self.session or not self.session.started_at:
+            return self.session.duration_seconds if self.session else 0
+
+        started_at = self._to_utc(self.session.started_at)
+        now = utcnow()
+
+        elapsed = (now - started_at).total_seconds()
+        elapsed -= self.session.total_paused_seconds or 0
+
+        return max(0, int(self.session.duration_seconds - elapsed))
+
+    async def _broadcast(self) -> None:
+        payload = {
+            "session": {
+                "started_at": self.session.started_at if self.session else None,
+                "stopped_at": self.session.stopped_at if self.session else None,
+                "paused_at": self.session.paused_at if self.session else None,
+                "remaining_seconds": self._remaining_seconds(),
+            },
+            "rankings": self.rankings(),
+        }
+
+        await ScoreBroadcaster.broadcast_speed_session_payload(
+            event_id=str(self.event.id),
+            class_key=self.class_key,
+            payload=payload,
+        )
+
+    def session_info(self) -> SpeedSession | None:
+        return self.session
+
+
     # ==========================================================
     # Session lifecycle
     # ==========================================================
 
-    def start(self) -> SpeedSession:
+    async def start(self) -> SpeedSession:
         if not self.session:
             self.session = SpeedSession(
                 event=self.event,
@@ -52,61 +84,30 @@ class SpeedSessionController:
         self.session.total_paused_seconds = self.session.total_paused_seconds or 0
         self.session.save()
 
+        await self._broadcast()
         return self.session
 
-    def stop(self) -> SpeedSession | None:
+    async def stop(self) -> SpeedSession | None:
         if not self.session:
             return None
 
         self._rebuild_rankings()
         self.session.stopped_at = utcnow()
         self.session.save()
+
+        await self._broadcast()
         return self.session
 
-    def session_info(self) -> SpeedSession | None:
-        return self.session
-
-    def remaining_seconds(self) -> int:
-        if not self.session or not self.session.started_at:
-            return self.session.duration_seconds if self.session else 0
-
-        started_at = self._to_utc(self.session.started_at)
-        now = utcnow()
-
-        elapsed = (now - started_at).total_seconds()
-        elapsed -= self.session.total_paused_seconds or 0
-
-        remaining = int(self.session.duration_seconds - elapsed)
-        return max(0, remaining)
-
-    # ==========================================================
-    # Scoring rules
-    # ==========================================================
-
-    def can_update(self) -> bool:
-        if not self.session or not self.session.started_at:
-            return False
-
-        if self.session.stopped_at or self.session.paused_at:
-            return False
-
-        started_at = self._to_utc(self.session.started_at)
-        now = utcnow()
-
-        elapsed = (now - started_at).total_seconds()
-        elapsed -= self.session.total_paused_seconds or 0
-
-        return elapsed <= self.session.duration_seconds
-
-
-    def pause(self) -> None:
+    async def pause(self) -> None:
         if not self.session or self.session.paused_at:
             return
 
         self.session.paused_at = utcnow()
         self.session.save()
 
-    def resume(self) -> None:
+        await self._broadcast()
+
+    async def resume(self) -> None:
         if not self.session or not self.session.paused_at:
             return
 
@@ -117,11 +118,20 @@ class SpeedSessionController:
         self.session.paused_at = None
         self.session.save()
 
+        await self._broadcast()
+
     # ==========================================================
-    # Speed updates
+    # Scoring
     # ==========================================================
 
-    def update_speed(self, *, registration_id: str, speed: float) -> EventRegistration:
+    def can_update(self) -> bool:
+        if not self.session or not self.session.started_at:
+            return False
+        if self.session.stopped_at or self.session.paused_at:
+            return False
+        return self._remaining_seconds() > 0
+
+    async def update_speed(self, *, registration_id: str, speed: float) -> EventRegistration:
         if not self.can_update():
             raise ValueError("Speed session is not active")
 
@@ -140,17 +150,15 @@ class SpeedSessionController:
             reg.save()
 
             self._rebuild_rankings()
+            await self._broadcast()
 
         return reg
 
     # ==========================================================
-    # Rankings (cached snapshot)
+    # Rankings
     # ==========================================================
 
     def rankings(self) -> list[dict]:
-        """
-        Return rankings as plain dicts for API serialization.
-        """
         if not self.session or not self.session.rankings:
             return []
 
@@ -192,7 +200,7 @@ class SpeedSessionController:
     # Admin utilities
     # ==========================================================
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         EventRegistration.objects(
             event=self.event,
             class_key=self.class_key,
@@ -207,8 +215,9 @@ class SpeedSessionController:
         ).delete()
 
         self.session = None
+        await self._broadcast()
 
-    def set_duration_minutes(self, minutes: int) -> SpeedSession:
+    async def set_duration_minutes(self, minutes: int) -> SpeedSession:
         if not self.session:
             self.session = SpeedSession(
                 event=self.event,
@@ -219,6 +228,7 @@ class SpeedSessionController:
             self.session.duration_seconds = minutes * 60
 
         self.session.save()
+        await self._broadcast()
         return self.session
 
     def _class_duration(self) -> int:

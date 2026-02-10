@@ -7,9 +7,10 @@ from core.controllers.round_controller import RoundController, TournamentService
 from server.base_models.round import RoundBase, MatchupBase, RoundCreate
 from utils.dependencies import require_admin_key
 
-router = APIRouter(tags=["Admin Matchups"],
-                   dependencies=[Depends(require_admin_key)],
-                   )
+router = APIRouter(
+    tags=["Admin Matchups"],
+    dependencies=[Depends(require_admin_key)],
+)
 
 
 @router.get(
@@ -41,12 +42,12 @@ async def admin_create_round(event_id: str, payload: RoundCreate):
     if not event:
         raise HTTPException(404, "Event not found")
 
-    r = TournamentService.create_round_auto(
+    round_obj = await TournamentService.create_round_auto(
         event=event,
         class_key=payload.class_key,
     )
 
-    return RoundBase.from_mongo(r)
+    return RoundBase.from_mongo(round_obj)
 
 
 @router.post(
@@ -64,9 +65,10 @@ async def admin_record_matchup_winner(
         raise HTTPException(404, "Round not found")
 
     controller = RoundController(round_obj)
-    m = controller.set_winner(matchup_id, payload["winner"])
 
-    return MatchupBase.from_mongo(m)
+    matchup = await controller.set_winner(matchup_id, payload["winner"])
+
+    return MatchupBase.from_mongo(matchup)
 
 
 @router.delete(
@@ -83,9 +85,10 @@ async def admin_undo_matchup_winner(
         raise HTTPException(404, "Round not found")
 
     controller = RoundController(round_obj)
-    m = controller.clear_winner(matchup_id)
 
-    return MatchupBase.from_mongo(m)
+    matchup = await controller.clear_winner(matchup_id)
+
+    return MatchupBase.from_mongo(matchup)
 
 
 @router.post(
@@ -97,7 +100,10 @@ async def admin_reset_class(event_id: str, class_key: str):
     if not event:
         raise HTTPException(404, "Event not found")
 
-    TournamentService.reset_class(event=event, class_key=class_key)
+    await TournamentService.reset_class(
+        event=event,
+        class_key=class_key,
+    )
 
 
 @router.patch(
@@ -117,7 +123,7 @@ async def admin_update_matchup(
     controller = RoundController(round_obj)
 
     try:
-        matchup = controller.update_matchup(matchup_id, payload)
+        matchup = await controller.update_matchup(matchup_id, payload)
     except ValueError:
         raise HTTPException(404, "Matchup not found")
 
